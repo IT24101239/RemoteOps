@@ -6,10 +6,12 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <signal.h>
-
+#include <sys/wait.h>
 #define PORT 9410
 #define BUFFER_SIZE 1024
+#define UDP_PORT 9411
 
+pid_t monitor_pid = -1;
 int main(void)
 {
     int server_fd;
@@ -406,83 +408,185 @@ setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
 
         /* 11. Check GET command */
-    else if (strncmp(buffer, "GET ", 4) == 0)
+else if (strncmp(buffer, "GET ", 4) == 0)
+{
+    char filename[256];
+    char filepath[512];
+    FILE *file;
+    char file_buffer[1024];
+    long filesize;
+    size_t bytes_read;
+
+    if (sscanf(buffer + 4, "%255s", filename) != 1)
     {
-        char filename[256];
-        char filepath[512];
-        FILE *file;
-        char file_buffer[1024];
-        long filesize;
-        size_t bytes_read;
+        const char *response =
+            "GET ERROR SID:9321\n";
 
-        if (sscanf(buffer + 4, "%255s", filename) != 1)
-        {
-            const char *response =
-                "GET ERROR SID:9321\n";
+        send(client_fd,
+             response,
+             strlen(response),
+             0);
 
-            send(client_fd,
-                 response,
-                 strlen(response),
-                 0);
-
-            continue;
-        }
-
-        snprintf(filepath,
-                 sizeof(filepath),
-                 "./agentfiles/IT24101239/%s",
-                 filename);
-
-        file = fopen(filepath, "rb");
-
-        if (file == NULL)
-        {
-            const char *response =
-                "GET ERROR SID:9321\n";
-
-            send(client_fd,
-                 response,
-                 strlen(response),
-                 0);
-
-            continue;
-        }
-
-        fseek(file, 0, SEEK_END);
-        filesize = ftell(file);
-        rewind(file);
-
-        {
-            char response[128];
-
-            snprintf(response,
-                     sizeof(response),
-                     "GET OK BYTES:%ld SID:9321\n",
-                     filesize);
-
-            send(client_fd,
-                 response,
-                 strlen(response),
-                 0);
-        }
-
-        while ((bytes_read =
-                fread(file_buffer,
-                      1,
-                      sizeof(file_buffer),
-                      file)) > 0)
-        {
-            send(client_fd,
-                 file_buffer,
-                 bytes_read,
-                 0);
-        }
-
-        fclose(file);
+        continue;
     }
 
+    snprintf(filepath,
+             sizeof(filepath),
+             "./agentfiles/IT24101239/%s",
+             filename);
 
-   
+    file = fopen(filepath, "rb");
+
+    if (file == NULL)
+    {
+        const char *response =
+            "GET ERROR SID:9321\n";
+
+        send(client_fd,
+             response,
+             strlen(response),
+             0);
+
+        continue;
+    }
+
+    fseek(file, 0, SEEK_END);
+    filesize = ftell(file);
+    rewind(file);
+
+    {
+        char response[128];
+
+        snprintf(response,
+                 sizeof(response),
+                 "GET OK BYTES:%ld SID:9321\n",
+                 filesize);
+
+        send(client_fd,
+             response,
+             strlen(response),
+             0);
+    }
+
+    while ((bytes_read =
+            fread(file_buffer,
+                  1,
+                  sizeof(file_buffer),
+                  file)) > 0)
+    {
+        send(client_fd,
+             file_buffer,
+             bytes_read,
+             0);
+    }
+
+    fclose(file);
+}
+
+
+           /* 12. Check MONITOR START command */
+        else if (strcmp(buffer, "MONITOR START\n") == 0)
+        {
+            if (monitor_pid > 0)
+            {
+                const char *response =
+                    "MONITOR ALREADY RUNNING SID:9321\n";
+
+                send(client_fd,
+                     response,
+                     strlen(response),
+                     0);
+
+                continue;
+            }
+
+            monitor_pid = fork();
+
+            if (monitor_pid == 0)
+            {
+                int udp_fd;
+                struct sockaddr_in udp_addr;
+                struct sockaddr_in controller_addr;
+                socklen_t controller_len;
+                char monitor_data[256];
+
+                udp_fd = socket(AF_INET,
+                                SOCK_DGRAM,
+                                0);
+
+                if (udp_fd < 0)
+                    exit(1);
+
+                memset(&udp_addr, 0, sizeof(udp_addr));
+
+                udp_addr.sin_family = AF_INET;
+                udp_addr.sin_port = htons(UDP_PORT);
+                udp_addr.sin_addr.s_addr =
+                    inet_addr("127.0.0.1");
+
+                controller_len = sizeof(controller_addr);
+
+                if (getpeername(client_fd,
+                                (struct sockaddr *)&controller_addr,
+                                &controller_len) < 0)
+                {
+                    close(udp_fd);
+                    exit(1);
+                }
+
+                controller_addr.sin_port =
+                    htons(UDP_PORT);
+
+                while (1)
+                {
+                    snprintf(monitor_data,
+                             sizeof(monitor_data),
+                             "MONITOR SID:9321 UPTIME:%.0f\n",
+                             0.0);
+
+                    sendto(udp_fd,
+                           monitor_data,
+                           strlen(monitor_data),
+                           0,
+                           (struct sockaddr *)&controller_addr,
+                           controller_len);
+
+                    sleep(2);
+                }
+            }
+
+            if (monitor_pid > 0)
+            {
+                const char *response =
+                    "MONITOR START OK SID:9321\n";
+
+                send(client_fd,
+                     response,
+                     strlen(response),
+                     0);
+            }
+        }
+/* 13. Check MONITOR STOP command */
+else if (strcmp(buffer, "MONITOR STOP\n") == 0)
+{
+    if (monitor_pid > 0)
+    {
+        kill(monitor_pid, SIGTERM);
+        waitpid(monitor_pid, NULL, 0);
+        monitor_pid = -1;
+    }
+
+    {
+        const char *response =
+            "MONITOR STOP OK SID:9321\n";
+
+        send(client_fd,
+             response,
+             strlen(response),
+             0);
+    }
+}
+
      /* 12. Check QUIT command */
     else if (strcmp(buffer, "QUIT\n") == 0)
     {

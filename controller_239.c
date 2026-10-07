@@ -8,7 +8,7 @@
 #define SERVER_IP "127.0.0.1"
 #define PORT 9410
 #define BUFFER_SIZE 1024
-
+#define UDP_PORT 9411
 
 int recv_line(int sock_fd, char *buffer, int size)
 {
@@ -36,10 +36,12 @@ int recv_line(int sock_fd, char *buffer, int size)
 int main(void)
 {
     int sock_fd;
+int udp_fd;
 
-    struct sockaddr_in server_addr;
+struct sockaddr_in server_addr;
+struct sockaddr_in udp_addr;
 
-    char buffer[BUFFER_SIZE];
+char buffer[BUFFER_SIZE];
 
     /* 1. Create TCP socket */
     sock_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -129,60 +131,7 @@ int main(void)
 
     printf("Agent response: %s", buffer);
 
-    /* 8. Send LISTPROC command */
-const char *listproc_message = "LISTPROC\n";
-
-send(sock_fd,
-     listproc_message,
-     strlen(listproc_message),
-     0);
-
-    /* 9. Receive LISTPROC response */
-{
-    char listproc_buffer[1024];
-    char listproc_data[16384];
-
-    size_t total_received = 0;
-    int chunk_received;
-
-    listproc_data[0] = '\0';
-
-    while (1)
-    {
-        memset(listproc_buffer, 0, sizeof(listproc_buffer));
-
-        chunk_received = recv(sock_fd,
-                              listproc_buffer,
-                              sizeof(listproc_buffer) - 1,
-                              0);
-
-        if (chunk_received <= 0)
-        {
-            perror("recv");
-            close(sock_fd);
-            return 1;
-        }
-
-        listproc_buffer[chunk_received] = '\0';
-
-        if (total_received + chunk_received
-            < sizeof(listproc_data) - 1)
-        {
-            strcat(listproc_data, listproc_buffer);
-            total_received += chunk_received;
-        }
-
-        if (strstr(listproc_data,
-                   "LISTPROC END SID:9321\n") != NULL)
-        {
-            break;
-        }
-    }
-
-    printf("Agent response:\n%s", listproc_data);
-}
-
-    
+ 
            /* 10. Send PUT command */
     {
         FILE *file;
@@ -215,6 +164,7 @@ send(sock_fd,
                  put_command,
                  strlen(put_command),
                  0);
+sleep(1);
         }
 
         while ((bytes_read = fread(file_buffer,
@@ -246,12 +196,7 @@ send(sock_fd,
         }
     }
 
-       /* 11. Send GET command */
-    send(sock_fd,
-         "GET testfile.txt\n",
-         strlen("GET testfile.txt\n"),
-         0);
-
+      
         /* 11. Send GET command */
     send(sock_fd,
          "GET testfile.txt\n",
@@ -324,10 +269,11 @@ send(sock_fd,
 
 
     /* 12. Send EXEC command */
-    send(sock_fd,
-         "EXEC DATE\n",
-         strlen("EXEC DATE\n"),
-         0);
+
+send(sock_fd,
+     "EXEC DATE\n",
+     strlen("EXEC DATE\n"),
+     0);
 
     /* Receive EXEC response */
     memset(buffer, 0, sizeof(buffer));
@@ -344,8 +290,104 @@ send(sock_fd,
         printf("Agent response: %s", buffer);
     }
 
+         /* 13. Start UDP monitoring */
 
-    /* 13. Send QUIT command */
+    udp_fd = socket(AF_INET, SOCK_DGRAM, 0);
+
+    if (udp_fd < 0)
+    {
+        perror("UDP socket");
+    }
+    else
+    {
+        memset(&udp_addr, 0, sizeof(udp_addr));
+
+        udp_addr.sin_family = AF_INET;
+        udp_addr.sin_port = htons(UDP_PORT);
+        udp_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+        if (bind(udp_fd,
+                 (struct sockaddr *)&udp_addr,
+                 sizeof(udp_addr)) < 0)
+        {
+            perror("UDP bind");
+            close(udp_fd);
+            udp_fd = -1;
+        }
+    }
+
+    /* Send MONITOR START */
+    send(sock_fd,
+         "MONITOR START\n",
+         strlen("MONITOR START\n"),
+         0);
+
+    /* Receive MONITOR START response */
+    memset(buffer, 0, sizeof(buffer));
+
+    bytes_received = recv_line(sock_fd,
+                               buffer,
+                               sizeof(buffer));
+
+    if (bytes_received > 0)
+    {
+        printf("Agent response: %s", buffer);
+    }
+
+    /* Receive three UDP monitoring packets */
+    if (udp_fd >= 0)
+    {
+        struct sockaddr_in monitor_addr;
+        socklen_t monitor_addr_len =
+            sizeof(monitor_addr);
+
+        int i;
+
+        for (i = 0; i < 3; i++)
+        {
+            memset(buffer, 0, sizeof(buffer));
+
+            bytes_received =
+                recvfrom(udp_fd,
+                         buffer,
+                         sizeof(buffer) - 1,
+                         0,
+                         (struct sockaddr *)&monitor_addr,
+                         &monitor_addr_len);
+
+            if (bytes_received > 0)
+            {
+                buffer[bytes_received] = '\0';
+
+                printf("UDP monitor: %s", buffer);
+            }
+        }
+    }
+
+    /* Send MONITOR STOP */
+    send(sock_fd,
+         "MONITOR STOP\n",
+         strlen("MONITOR STOP\n"),
+         0);
+
+    /* Receive MONITOR STOP response */
+    memset(buffer, 0, sizeof(buffer));
+
+    bytes_received = recv_line(sock_fd,
+                               buffer,
+                               sizeof(buffer));
+
+    if (bytes_received > 0)
+    {
+        printf("Agent response: %s", buffer);
+    }
+
+    if (udp_fd >= 0)
+    {
+        close(udp_fd);
+    }
+
+    /* 14. Send QUIT command */
     send(sock_fd,
          "QUIT\n",
          strlen("QUIT\n"),
