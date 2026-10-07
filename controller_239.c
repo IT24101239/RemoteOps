@@ -51,15 +51,15 @@ int main(void)
 
     printf("Connected to RemoteOps Agent.\n");
 
-    /* 4. Send AUTH command */
-    const char *message = "AUTH OPS-1239\n";
+        /* 4. Send AUTH command */
+    const char *auth_message = "AUTH OPS-1239\n";
 
-     send(sock_fd,
-     message,
-     strlen(message),
-     0);
+    send(sock_fd,
+         auth_message,
+         strlen(auth_message),
+         0);
 
-    /* 5. Receive Agent response */
+    /* 5. Receive AUTH response */
     memset(buffer, 0, sizeof(buffer));
 
     int bytes_received = recv(sock_fd,
@@ -67,18 +67,122 @@ int main(void)
                               sizeof(buffer) - 1,
                               0);
 
-    if (bytes_received < 0)
+    if (bytes_received <= 0)
     {
         perror("recv");
+        close(sock_fd);
+        return 1;
     }
-    else
+
+    buffer[bytes_received] = '\0';
+
+    printf("Agent response: %s", buffer);
+
+    /* 6. Send SYSINFO command */
+    const char *sysinfo_message = "SYSINFO\n";
+
+    send(sock_fd,
+         sysinfo_message,
+         strlen(sysinfo_message),
+         0);
+
+    /* 7. Receive SYSINFO response */
+    memset(buffer, 0, sizeof(buffer));
+
+    bytes_received = recv(sock_fd,
+                          buffer,
+                          sizeof(buffer) - 1,
+                          0);
+
+    if (bytes_received <= 0)
+    {
+        perror("recv");
+        close(sock_fd);
+        return 1;
+    }
+
+    buffer[bytes_received] = '\0';
+
+    printf("Agent response: %s", buffer);
+
+    /* 8. Send LISTPROC command */
+const char *listproc_message = "LISTPROC\n";
+
+send(sock_fd,
+     listproc_message,
+     strlen(listproc_message),
+     0);
+
+    /* 9. Receive LISTPROC response */
+{
+    char listproc_buffer[1024];
+    char listproc_data[16384];
+
+    size_t total_received = 0;
+    int chunk_received;
+
+    listproc_data[0] = '\0';
+
+    while (1)
+    {
+        memset(listproc_buffer, 0, sizeof(listproc_buffer));
+
+        chunk_received = recv(sock_fd,
+                              listproc_buffer,
+                              sizeof(listproc_buffer) - 1,
+                              0);
+
+        if (chunk_received <= 0)
+        {
+            perror("recv");
+            close(sock_fd);
+            return 1;
+        }
+
+        listproc_buffer[chunk_received] = '\0';
+
+        if (total_received + chunk_received
+            < sizeof(listproc_data) - 1)
+        {
+            strcat(listproc_data, listproc_buffer);
+            total_received += chunk_received;
+        }
+
+        if (strstr(listproc_data,
+                   "LISTPROC END SID:9321\n") != NULL)
+        {
+            break;
+        }
+    }
+
+    printf("Agent response:\n%s", listproc_data);
+}
+
+    
+    /* 10. Send QUIT command */
+    const char *quit_message = "QUIT\n";
+
+    send(sock_fd,
+         quit_message,
+         strlen(quit_message),
+         0);
+
+    /* 11. Receive QUIT response */
+    memset(buffer, 0, sizeof(buffer));
+
+    bytes_received = recv(sock_fd,
+                          buffer,
+                          sizeof(buffer) - 1,
+                          0);
+
+    if (bytes_received > 0)
     {
         buffer[bytes_received] = '\0';
 
         printf("Agent response: %s", buffer);
     }
 
-    /* 6. Close connection */
+    /* 12. Close connection */
     close(sock_fd);
 
     return 0;

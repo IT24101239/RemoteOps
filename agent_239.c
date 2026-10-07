@@ -18,6 +18,7 @@ int main(void)
 
     socklen_t client_len = sizeof(client_addr);
 
+
     char buffer[BUFFER_SIZE];
 
     /* 1. Create TCP socket */
@@ -70,47 +71,236 @@ int main(void)
 
     printf("Controller connected.\n");
 
-    /* 6. Receive a message */
-    memset(buffer, 0, sizeof(buffer));
-
-    int bytes_received = recv(client_fd,
-                              buffer,
-                              sizeof(buffer) - 1,
-                              0);
-
-    if (bytes_received < 0)
+        /* 6. Receive commands */
+    while (1)
     {
-        perror("recv");
-    }
-    else
-    {
+        memset(buffer, 0, sizeof(buffer));
+
+        int bytes_received = recv(client_fd,
+                                  buffer,
+                                  sizeof(buffer) - 1,
+                                  0);
+
+        if (bytes_received < 0)
+        {
+            perror("recv");
+            break;
+        }
+
+        if (bytes_received == 0)
+        {
+            printf("Controller disconnected.\n");
+            break;
+        }
+
         buffer[bytes_received] = '\0';
 
-        printf("Received: %s\n", buffer);
+        printf("Received: %s", buffer);
 
         /* 7. Check AUTH command */
-         if (strcmp(buffer, "AUTH OPS-1239\n") == 0)
-         {
+        if (strcmp(buffer, "AUTH OPS-1239\n") == 0)
+        {
             const char *response = "AUTH OK SID:9321\n";
 
             send(client_fd,
-            response,
-            strlen(response),
-            0);
+                 response,
+                 strlen(response),
+                 0);
+        }
+        /* 8. Check SYSINFO command */
+                else if (strcmp(buffer, "SYSINFO\n") == 0)
+       {
+        FILE *cpu_file;
+        FILE *mem_file;
+        FILE *uptime_file;
+
+        char cpu_info[256];
+        char mem_line[256];
+
+        unsigned long mem_total = 0;
+        unsigned long mem_available = 0;
+
+        double uptime_seconds = 0.0;
+
+        char response[1024];
+
+        /* Read CPU model */
+        cpu_file = fopen("/proc/cpuinfo", "r");
+
+        if (cpu_file == NULL)
+        {
+            const char *error_response =
+                "SYSINFO ERROR SID:9321\n";
+
+            send(client_fd,
+                 error_response,
+                 strlen(error_response),
+                 0);
+
+            continue;
+        }
+
+        cpu_info[0] = '\0';
+
+        while (fgets(cpu_info,
+                     sizeof(cpu_info),
+                     cpu_file) != NULL)
+        {
+            if (strncmp(cpu_info, "model name", 10) == 0)
+            {
+                cpu_info[strcspn(cpu_info, "\n")] = '\0';
+                break;
+            }
+        }
+
+        fclose(cpu_file);
+
+        /* Read memory information */
+        mem_file = fopen("/proc/meminfo", "r");
+
+        if (mem_file != NULL)
+        {
+            while (fgets(mem_line,
+                         sizeof(mem_line),
+                         mem_file) != NULL)
+            {
+                if (sscanf(mem_line,
+                           "MemTotal: %lu kB",
+                           &mem_total) == 1)
+                {
+                    continue;
+                }
+
+                if (sscanf(mem_line,
+                           "MemAvailable: %lu kB",
+                           &mem_available) == 1)
+                {
+                    continue;
+                }
+            }
+
+            fclose(mem_file);
+        }
+
+        /* Read system uptime */
+        uptime_file = fopen("/proc/uptime", "r");
+
+        if (uptime_file != NULL)
+        {
+            fscanf(uptime_file,
+                   "%lf",
+                   &uptime_seconds);
+
+            fclose(uptime_file);
+        }
+
+        /* Build SYSINFO response */
+        snprintf(response,
+                 sizeof(response),
+                 "SYSINFO OK %s MEM_TOTAL_KB:%lu MEM_AVAILABLE_KB:%lu UPTIME_SECONDS:%.0f SID:9321\n",
+                 cpu_info,
+                 mem_total,
+                 mem_available,
+                 uptime_seconds);
+
+        send(client_fd,
+             response,
+             strlen(response),
+             0);
+    }
+     
+   
+            /* 9. Check LISTPROC command */
+    else if (strcmp(buffer, "LISTPROC\n") == 0)
+    {
+        FILE *process_file;
+        char process_line[256];
+
+        process_file = popen("ps -eo pid,comm", "r");
+
+        if (process_file == NULL)
+        {
+            const char *error_response =
+                "LISTPROC ERROR SID:9321\n";
+
+            send(client_fd,
+                 error_response,
+                 strlen(error_response),
+                 0);
+
+            continue;
+        }
+
+        /* Send LISTPROC header */
+        {
+            const char *header =
+                "LISTPROC OK SID:9321\n";
+
+            send(client_fd,
+                 header,
+                 strlen(header),
+                 0);
+        }
+
+        /* Send each process as a separate line */
+        while (fgets(process_line,
+                     sizeof(process_line),
+                     process_file) != NULL)
+        {
+            char process_response[512];
+
+            snprintf(process_response,
+                     sizeof(process_response),
+                     "%s SID:9321\n",
+                     process_line);
+
+            send(client_fd,
+                 process_response,
+                 strlen(process_response),
+                 0);
+        }
+
+        pclose(process_file);
+
+        /* Send end marker */
+        {
+            const char *end_response =
+                "LISTPROC END SID:9321\n";
+
+            send(client_fd,
+                 end_response,
+                 strlen(end_response),
+                 0);
+        }
+    }
+
+        /* 10. Check QUIT command */
+    else if (strcmp(buffer, "QUIT\n") == 0)
+    {
+        const char *response = "BYE SID:9321\n";
+
+        send(client_fd,
+             response,
+             strlen(response),
+             0);
+
+        break;
+    }
+    else
+    {
+        const char *response =
+            "ERROR UNKNOWN COMMAND SID:9321\n";
+
+        send(client_fd,
+             response,
+             strlen(response),
+             0);
+    }
 }
-else
-{
-    const char *response = "AUTH FAILED SID:9321\n";
 
-    send(client_fd,
-         response,
-         strlen(response),
-         0);
-}
+/* 11. Close connection */
+close(client_fd);
+close(server_fd);
 
-}    /* 8. Close connection */
-    close(client_fd);
-    close(server_fd);
-
-    return 0;
+return 0;
 }
