@@ -4,6 +4,8 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <sys/types.h>
+#include <signal.h>
 
 #define PORT 9410
 #define BUFFER_SIZE 1024
@@ -59,19 +61,47 @@ setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
     printf("RemoteOps Agent listening on TCP port %d...\n", PORT);
 
-    /* 5. Accept a Controller connection */
-    client_fd = accept(server_fd,
-                       (struct sockaddr *)&client_addr,
-                       &client_len);
+        /* 5. Accept multiple Controller connections */
+    signal(SIGCHLD, SIG_IGN);
 
-    if (client_fd < 0)
+    while (1)
     {
-        perror("accept");
+        client_len = sizeof(client_addr);
+
+        client_fd = accept(server_fd,
+                           (struct sockaddr *)&client_addr,
+                           &client_len);
+
+        if (client_fd < 0)
+        {
+            perror("accept");
+            continue;
+        }
+
+        printf("Controller connected.\n");
+
+        pid_t pid = fork();
+
+        if (pid < 0)
+        {
+            perror("fork");
+            close(client_fd);
+            continue;
+        }
+
+        if (pid > 0)
+        {
+            /* Parent continues accepting new Controllers */
+            close(client_fd);
+            continue;
+        }
+
+        /* Child handles this Controller */
         close(server_fd);
-        return 1;
+
+        break;
     }
 
-    printf("Controller connected.\n");
 
         /* 6. Receive commands */
     while (1)
@@ -375,7 +405,85 @@ setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     }
 
 
-    /* 11. Check QUIT command */
+        /* 11. Check GET command */
+    else if (strncmp(buffer, "GET ", 4) == 0)
+    {
+        char filename[256];
+        char filepath[512];
+        FILE *file;
+        char file_buffer[1024];
+        long filesize;
+        size_t bytes_read;
+
+        if (sscanf(buffer + 4, "%255s", filename) != 1)
+        {
+            const char *response =
+                "GET ERROR SID:9321\n";
+
+            send(client_fd,
+                 response,
+                 strlen(response),
+                 0);
+
+            continue;
+        }
+
+        snprintf(filepath,
+                 sizeof(filepath),
+                 "./agentfiles/IT24101239/%s",
+                 filename);
+
+        file = fopen(filepath, "rb");
+
+        if (file == NULL)
+        {
+            const char *response =
+                "GET ERROR SID:9321\n";
+
+            send(client_fd,
+                 response,
+                 strlen(response),
+                 0);
+
+            continue;
+        }
+
+        fseek(file, 0, SEEK_END);
+        filesize = ftell(file);
+        rewind(file);
+
+        {
+            char response[128];
+
+            snprintf(response,
+                     sizeof(response),
+                     "GET OK BYTES:%ld SID:9321\n",
+                     filesize);
+
+            send(client_fd,
+                 response,
+                 strlen(response),
+                 0);
+        }
+
+        while ((bytes_read =
+                fread(file_buffer,
+                      1,
+                      sizeof(file_buffer),
+                      file)) > 0)
+        {
+            send(client_fd,
+                 file_buffer,
+                 bytes_read,
+                 0);
+        }
+
+        fclose(file);
+    }
+
+
+   
+     /* 12. Check QUIT command */
     else if (strcmp(buffer, "QUIT\n") == 0)
     {
         const char *response =
@@ -388,19 +496,10 @@ setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
         break;
     }
-    else
-    {
-        const char *response =
-            "ERROR UNKNOWN COMMAND SID:9321\n";
-
-        send(client_fd,
-             response,
-             strlen(response),
-             0);
-    }
 }
 
-/* 12. Close connection */
+
+/* Close connection */
 close(client_fd);
 close(server_fd);
 
