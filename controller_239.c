@@ -51,13 +51,13 @@ int main(void)
 
     printf("Connected to RemoteOps Agent.\n");
 
-    /* 4. Send a test message */
-    const char *message = "Hello from RemoteOps Controller!\n";
+    /* 4. Send AUTH command */
+    const char *message = "AUTH OPS-1239\n";
 
-    send(sock_fd,
-         message,
-         strlen(message),
-         0);
+     send(sock_fd,
+     message,
+     strlen(message),
+     0);
 
     /* 5. Receive Agent response */
     memset(buffer, 0, sizeof(buffer));

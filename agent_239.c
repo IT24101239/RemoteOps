@@ -88,16 +88,27 @@ int main(void)
 
         printf("Received: %s\n", buffer);
 
-        /* 7. Send a response */
-        const char *response = "Hello from RemoteOps Agent!\n";
+        /* 7. Check AUTH command */
+         if (strcmp(buffer, "AUTH OPS-1239\n") == 0)
+         {
+            const char *response = "AUTH OK SID:9321\n";
 
-        send(client_fd,
-             response,
-             strlen(response),
-             0);
-    }
+            send(client_fd,
+            response,
+            strlen(response),
+            0);
+}
+else
+{
+    const char *response = "AUTH FAILED SID:9321\n";
 
-    /* 8. Close connection */
+    send(client_fd,
+         response,
+         strlen(response),
+         0);
+}
+
+}    /* 8. Close connection */
     close(client_fd);
     close(server_fd);
 
