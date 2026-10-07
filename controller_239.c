@@ -9,6 +9,30 @@
 #define PORT 9410
 #define BUFFER_SIZE 1024
 
+
+int recv_line(int sock_fd, char *buffer, int size)
+{
+    int total = 0;
+    char ch;
+
+    while (total < size - 1)
+    {
+        int n = recv(sock_fd, &ch, 1, 0);
+
+        if (n <= 0)
+            return n;
+
+        buffer[total++] = ch;
+
+        if (ch == '\n')
+            break;
+    }
+
+    buffer[total] = '\0';
+
+    return total;
+}
+
 int main(void)
 {
     int sock_fd;
@@ -222,7 +246,90 @@ send(sock_fd,
         }
     }
 
-    /* 11. Receive EXEC response */
+       /* 11. Send GET command */
+    send(sock_fd,
+         "GET testfile.txt\n",
+         strlen("GET testfile.txt\n"),
+         0);
+
+        /* 11. Send GET command */
+    send(sock_fd,
+         "GET testfile.txt\n",
+         strlen("GET testfile.txt\n"),
+         0);
+
+        /* Receive GET response header */
+    memset(buffer, 0, sizeof(buffer));
+
+    bytes_received = recv_line(sock_fd,
+                               buffer,
+                               sizeof(buffer));
+
+    if (bytes_received > 0)
+    {
+        long filesize;
+        long total_received = 0;
+        int received;
+        FILE *download_file;
+        char file_buffer[1024];
+
+        buffer[bytes_received] = '\0';
+
+        printf("Agent response: %s", buffer);
+
+        if (sscanf(buffer,
+                   "GET OK BYTES:%ld",
+                   &filesize) == 1)
+        {
+            download_file = fopen("downloaded_testfile.txt", "wb");
+
+            if (download_file == NULL)
+            {
+                perror("fopen");
+                close(sock_fd);
+                return 1;
+            }
+
+            while (total_received < filesize)
+            {
+                long remaining = filesize - total_received;
+
+                int receive_size =
+                    remaining < (long)sizeof(file_buffer)
+                    ? (int)remaining
+                    : (int)sizeof(file_buffer);
+
+                received = recv(sock_fd,
+                                file_buffer,
+                                receive_size,
+                                0);
+
+                if (received <= 0)
+                    break;
+
+                fwrite(file_buffer,
+                       1,
+                       received,
+                       download_file);
+
+                total_received += received;
+            }
+
+            fclose(download_file);
+
+            printf("Downloaded %ld bytes.\n",
+                   total_received);
+        }
+    }
+
+
+    /* 12. Send EXEC command */
+    send(sock_fd,
+         "EXEC DATE\n",
+         strlen("EXEC DATE\n"),
+         0);
+
+    /* Receive EXEC response */
     memset(buffer, 0, sizeof(buffer));
 
     bytes_received = recv(sock_fd,
@@ -237,7 +344,14 @@ send(sock_fd,
         printf("Agent response: %s", buffer);
     }
 
-    /* 11. Receive QUIT response */
+
+    /* 13. Send QUIT command */
+    send(sock_fd,
+         "QUIT\n",
+         strlen("QUIT\n"),
+         0);
+
+    /* Receive QUIT response */
     memset(buffer, 0, sizeof(buffer));
 
     bytes_received = recv(sock_fd,
@@ -251,6 +365,12 @@ send(sock_fd,
 
         printf("Agent response: %s", buffer);
     }
+
+
+    /* 14. Close connection */
+    close(sock_fd);
+
+    return 0;
 
     /* 12. Close connection */
     close(sock_fd);
