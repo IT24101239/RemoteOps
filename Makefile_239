@@ -1,0 +1,13 @@
+CC = gcc
+CFLAGS = -Wall -Wextra
+
+all: agent_239 controller_239
+
+agent_239: agent_239.c
+	$(CC) $(CFLAGS) -o agent_239 agent_239.c
+
+controller_239: controller_239.c
+	$(CC) $(CFLAGS) -o controller_239 controller_239.c
+
+clean:
+	rm -f agent_239 controller_239
