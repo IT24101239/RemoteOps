@@ -23,6 +23,8 @@ int main(void)
 
     /* 1. Create TCP socket */
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
+int opt = 1;
+setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
     if (server_fd < 0)
     {
@@ -274,68 +276,96 @@ int main(void)
         }
     }
 
-            /* 10. Check EXEC command */
-    else if (strncmp(buffer, "EXEC ", 5) == 0)
+                /* 10. Check PUT command */
+    else if (strncmp(buffer, "PUT ", 4) == 0)
     {
-        char command[32];
-        FILE *command_file;
-        char command_output[1024];
+        char filename[256];
+        long filesize;
+        FILE *file;
+        char filepath[512];
+        char file_buffer[1024];
+        long total_received = 0;
+        int received;
 
-        sscanf(buffer + 5, "%31[^\n]", command);
-
-        if (strcmp(command, "DATE") == 0 ||
-            strcmp(command, "UPTIME") == 0 ||
-            strcmp(command, "DISKFREE") == 0 ||
-            strcmp(command, "HOSTNAME") == 0 ||
-            strcmp(command, "WHOAMI") == 0)
+        if (sscanf(buffer + 4, "%255s %ld",
+                   filename, &filesize) != 2)
         {
-            if (strcmp(command, "DATE") == 0)
-    command_file = popen("date", "r");
-else if (strcmp(command, "UPTIME") == 0)
-    command_file = popen("uptime", "r");
-else if (strcmp(command, "DISKFREE") == 0)
-    command_file = popen("df -h /", "r");
-else if (strcmp(command, "HOSTNAME") == 0)
-    command_file = popen("hostname", "r");
-else
-    command_file = popen("whoami", "r");
+            const char *response =
+                "PUT ERROR SID:9321\n";
 
-            if (command_file == NULL)
-            {
-                const char *response =
-                    "EXEC ERROR SID:9321\n";
+            send(client_fd,
+                 response,
+                 strlen(response),
+                 0);
 
-                send(client_fd,
-                     response,
-                     strlen(response),
-                     0);
-            }
-            else
-            {
-                while (fgets(command_output,
-                              sizeof(command_output),
-                              command_file) != NULL)
-                {
-                    char response[1200];
+            continue;
+        }
 
-                    snprintf(response,
-                             sizeof(response),
-                             "EXEC OK %sSID:9321\n",
-                             command_output);
+        snprintf(filepath,
+                 sizeof(filepath),
+                 "./agentfiles/IT24101239/%s",
+                 filename);
 
-                    send(client_fd,
-                         response,
-                         strlen(response),
-                         0);
-                }
+        file = fopen(filepath, "wb");
 
-                pclose(command_file);
-            }
+        if (file == NULL)
+        {
+            const char *response =
+                "PUT ERROR SID:9321\n";
+
+            send(client_fd,
+                 response,
+                 strlen(response),
+                 0);
+
+            continue;
+        }
+
+        while (total_received < filesize)
+        {
+            long remaining = filesize - total_received;
+
+            int receive_size =
+                remaining < (long)sizeof(file_buffer)
+                ? (int)remaining
+                : (int)sizeof(file_buffer);
+
+            received = recv(client_fd,
+                            file_buffer,
+                            receive_size,
+                            0);
+
+            if (received <= 0)
+                break;
+
+            fwrite(file_buffer,
+                   1,
+                   received,
+                   file);
+
+            total_received += received;
+        }
+
+        fclose(file);
+
+        if (total_received == filesize)
+        {
+            char response[128];
+
+            snprintf(response,
+                     sizeof(response),
+                     "PUT OK BYTES:%ld SID:9321\n",
+                     total_received);
+
+            send(client_fd,
+                 response,
+                 strlen(response),
+                 0);
         }
         else
         {
             const char *response =
-                "EXEC DENIED SID:9321\n";
+                "PUT ERROR SID:9321\n";
 
             send(client_fd,
                  response,
@@ -343,6 +373,7 @@ else
                  0);
         }
     }
+
 
     /* 11. Check QUIT command */
     else if (strcmp(buffer, "QUIT\n") == 0)

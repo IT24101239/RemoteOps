@@ -159,13 +159,68 @@ send(sock_fd,
 }
 
     
-        /* 10. Send EXEC DATE command */
-    const char *exec_message = "EXEC DATE\n";
+           /* 10. Send PUT command */
+    {
+        FILE *file;
+        char file_buffer[1024];
+        long filesize;
+        size_t bytes_read;
 
-    send(sock_fd,
-         exec_message,
-         strlen(exec_message),
-         0);
+        file = fopen("testfile.txt", "rb");
+
+        if (file == NULL)
+        {
+            perror("fopen");
+            close(sock_fd);
+            return 1;
+        }
+
+        fseek(file, 0, SEEK_END);
+        filesize = ftell(file);
+        rewind(file);
+
+        {
+            char put_command[256];
+
+            snprintf(put_command,
+                     sizeof(put_command),
+                     "PUT testfile.txt %ld\n",
+                     filesize);
+
+            send(sock_fd,
+                 put_command,
+                 strlen(put_command),
+                 0);
+        }
+
+        while ((bytes_read = fread(file_buffer,
+                                   1,
+                                   sizeof(file_buffer),
+                                   file)) > 0)
+        {
+            send(sock_fd,
+                 file_buffer,
+                 bytes_read,
+                 0);
+        }
+
+        fclose(file);
+
+        /* Receive PUT response */
+        memset(buffer, 0, sizeof(buffer));
+
+        bytes_received = recv(sock_fd,
+                              buffer,
+                              sizeof(buffer) - 1,
+                              0);
+
+        if (bytes_received > 0)
+        {
+            buffer[bytes_received] = '\0';
+
+            printf("Agent response: %s", buffer);
+        }
+    }
 
     /* 11. Receive EXEC response */
     memset(buffer, 0, sizeof(buffer));
