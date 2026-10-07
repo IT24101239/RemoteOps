@@ -159,13 +159,28 @@ send(sock_fd,
 }
 
     
-    /* 10. Send QUIT command */
-    const char *quit_message = "QUIT\n";
+        /* 10. Send EXEC DATE command */
+    const char *exec_message = "EXEC DATE\n";
 
     send(sock_fd,
-         quit_message,
-         strlen(quit_message),
+         exec_message,
+         strlen(exec_message),
          0);
+
+    /* 11. Receive EXEC response */
+    memset(buffer, 0, sizeof(buffer));
+
+    bytes_received = recv(sock_fd,
+                          buffer,
+                          sizeof(buffer) - 1,
+                          0);
+
+    if (bytes_received > 0)
+    {
+        buffer[bytes_received] = '\0';
+
+        printf("Agent response: %s", buffer);
+    }
 
     /* 11. Receive QUIT response */
     memset(buffer, 0, sizeof(buffer));

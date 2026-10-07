@@ -274,10 +274,81 @@ int main(void)
         }
     }
 
-        /* 10. Check QUIT command */
+            /* 10. Check EXEC command */
+    else if (strncmp(buffer, "EXEC ", 5) == 0)
+    {
+        char command[32];
+        FILE *command_file;
+        char command_output[1024];
+
+        sscanf(buffer + 5, "%31[^\n]", command);
+
+        if (strcmp(command, "DATE") == 0 ||
+            strcmp(command, "UPTIME") == 0 ||
+            strcmp(command, "DISKFREE") == 0 ||
+            strcmp(command, "HOSTNAME") == 0 ||
+            strcmp(command, "WHOAMI") == 0)
+        {
+            if (strcmp(command, "DATE") == 0)
+    command_file = popen("date", "r");
+else if (strcmp(command, "UPTIME") == 0)
+    command_file = popen("uptime", "r");
+else if (strcmp(command, "DISKFREE") == 0)
+    command_file = popen("df -h /", "r");
+else if (strcmp(command, "HOSTNAME") == 0)
+    command_file = popen("hostname", "r");
+else
+    command_file = popen("whoami", "r");
+
+            if (command_file == NULL)
+            {
+                const char *response =
+                    "EXEC ERROR SID:9321\n";
+
+                send(client_fd,
+                     response,
+                     strlen(response),
+                     0);
+            }
+            else
+            {
+                while (fgets(command_output,
+                              sizeof(command_output),
+                              command_file) != NULL)
+                {
+                    char response[1200];
+
+                    snprintf(response,
+                             sizeof(response),
+                             "EXEC OK %sSID:9321\n",
+                             command_output);
+
+                    send(client_fd,
+                         response,
+                         strlen(response),
+                         0);
+                }
+
+                pclose(command_file);
+            }
+        }
+        else
+        {
+            const char *response =
+                "EXEC DENIED SID:9321\n";
+
+            send(client_fd,
+                 response,
+                 strlen(response),
+                 0);
+        }
+    }
+
+    /* 11. Check QUIT command */
     else if (strcmp(buffer, "QUIT\n") == 0)
     {
-        const char *response = "BYE SID:9321\n";
+        const char *response =
+            "BYE SID:9321\n";
 
         send(client_fd,
              response,
@@ -298,7 +369,7 @@ int main(void)
     }
 }
 
-/* 11. Close connection */
+/* 12. Close connection */
 close(client_fd);
 close(server_fd);
 
